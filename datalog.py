@@ -106,6 +106,38 @@ elab_link = clipboard_content = pyperclip.paste() # Automatically copies link fr
 tissue_name = f"{donor_name}.{tile_location_abbr}.{slab}.{tile}"
 dissociated_cell_sample_name = f'{date}_{tissue_name}.Multiome'
 
+# Determine facs_population_plan based on sort_method
+if sort_method.lower() == "pooled":
+    while True:
+        proportions = input("Enter the proportions of NeuN+/Dneg/Olig2+ (e.g., 70/20/10 or 100/0/0): ").strip()
+
+        # Normalize input
+        if "/" in proportions:
+            proportions = proportions.split("/")
+            if len(proportions) == 3:
+                try:
+                    # Convert proportions to integers
+                    proportions = [int(p) for p in proportions]
+                    # Check if the proportions add up to 100
+                    if sum(proportions) == 100:
+                        facs_population = "/".join(map(str, proportions))  # Join proportions with slashes
+                        break
+                    else:
+                        print("Invalid input. The proportions must add up to 100.")
+                except ValueError:
+                    print("Invalid input. Please enter numbers for the proportions.")
+            else:
+                print("Invalid input. Please enter three proportions separated by slashes (e.g., 70/20/10).")
+        else:
+            print("Invalid input. Please use slashes to separate the proportions (e.g., 70/20/10).")
+elif sort_method.lower() == "unsorted":
+    facs_population = "no_FACS"
+elif sort_method.lower() == "dapi":
+    facs_population = "DAPI"  # Set to "DAPI" instead of "DAPI_sorted"
+else:
+    print("Invalid sort method. Please enter pooled, unsorted, or DAPI.")
+    exit()
+
 # Make column headers and give their positions; also call "bold" formatting
 worksheet.write('A1', 'krienen_lab_identifier', bold)
 worksheet.write('B1', 'seq_portal', bold)
