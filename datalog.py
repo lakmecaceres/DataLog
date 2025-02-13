@@ -138,77 +138,45 @@ else:
     print("Invalid sort method. Please enter pooled, unsorted, or DAPI.")
     exit()
 
-# Make column headers and give their positions; also call "bold" formatting
-worksheet.write('A1', 'krienen_lab_identifier', bold)
-worksheet.write('B1', 'seq_portal', bold)
-worksheet.write('C1', 'elab_link', bold)
-worksheet.write('D1', 'experiment_start_date', bold)
-worksheet.write('E1', 'mit_name', bold)
-worksheet.write('F1', 'donor_name', bold)
-worksheet.write('G1', 'tissue_name', bold)
-worksheet.write('H1', 'tissue_name_old', bold)
-worksheet.write('I1', 'dissociated_cell_sample_name', bold)
-worksheet.write('J1', 'facs_population_plan', bold)
-worksheet.write('K1', 'cell_prep_type', bold)
-worksheet.write('L1', 'study', bold)
-worksheet.write('M1', 'enriched_cell_sample_container_name', bold)
-worksheet.write('N1', 'expc_cell_capture', bold)
-worksheet.write('O1', 'port_well', bold)
-worksheet.write('P1', 'enriched_cell_sample_name', bold)
-worksheet.write('Q1', 'enriched_cell_sample_quantity_count', bold)
-worksheet.write('R1', 'barcoded_cell_sample_name', bold)
-worksheet.write('S1', 'library_method', bold)
-worksheet.write('T1', 'cDNA_amplification_method', bold)
-worksheet.write('U1', 'cDNA_amplification_date', bold)
-worksheet.write('V1', 'amplified_cdna_name', bold)
-worksheet.write('W1', 'cDNA_pcr_cycles', bold)
-worksheet.write('X1', 'rna_amplification_pass_fail', bold)
-worksheet.write('Y1', 'percent_cdna_longer_than_400bp', bold)
-worksheet.write('Z1', 'cdna_amplified_quantity_ng', bold)
-worksheet.write('AA1', 'library_creation_date', bold)
-worksheet.write('AB1', 'library_prep_set', bold)
-worksheet.write('AC1', 'library_name', bold)
-worksheet.write('AD1', 'cDNA_library_input_ng', bold)
-worksheet.write('AE1', 'tapestation_avg_size_bp', bold)
-worksheet.write('AF1', 'library_num_cycles', bold)
-worksheet.write('AG1', 'lib_quantification_ng', bold)
-worksheet.write('AH1', 'library_prep_pass_fail', bold)
-worksheet.write('AI1', 'r1_index', bold)
-worksheet.write('AJ1', 'r2_index', bold)
-worksheet.write('AK1', 'ATAC_index', bold)
-worksheet.write('AL1', 'library_pool_name', bold)
+# Define column headers
+headers = [
+    'krienen_lab_identifier', 'seq_portal', 'elab_link', 'experiment_start_date', 'mit_name',
+    'donor_name', 'tissue_name', 'tissue_name_old', 'dissociated_cell_sample_name', 'facs_population_plan',
+    'cell_prep_type', 'study', 'enriched_cell_sample_container_name', 'expc_cell_capture', 'port_well',
+    'enriched_cell_sample_name', 'enriched_cell_sample_quantity_count', 'barcoded_cell_sample_name', 'library_method',
+    'cDNA_amplification_method', 'cDNA_amplification_date', 'amplified_cdna_name', 'cDNA_pcr_cycles',
+    'rna_amplification_pass_fail', 'percent_cdna_longer_than_400bp', 'cdna_amplified_quantity_ng',
+    'library_creation_date', 'library_prep_set', 'library_name', 'cDNA_library_input_ng', 'tapestation_avg_size_bp',
+    'library_num_cycles', 'lib_quantification_ng', 'library_prep_pass_fail', 'r1_index', 'r2_index',
+    'ATAC_index', 'library_pool_name'
+]
 
+# Write headers to the first row
+for col_index, header in enumerate(headers):
+    worksheet.write(0, col_index, header, bold)
 
 # Make duplicate rows for every reaction that was run for RNA and ATAC
 row_index = 1
 for x in range(rxn_number):
-    krienen_lab_identifier_rna = f'{date}_HMBA_cj{mit_name}_Slab{slab}_Tile{tile}_{sort_method}_RNA{x + 1}'
-    worksheet.write(row_index, 0, krienen_lab_identifier_rna)
-    worksheet.write(row_index, 1, seq_portal)
-    worksheet.write(row_index, 2, elab_link)
-    worksheet.write(row_index, 3, date)
-    worksheet.write(row_index, 4, mit_name)
-    worksheet.write(row_index, 5, donor_name)
-    worksheet.write(row_index, 6, tissue_name)
-    worksheet.write(row_index, 8, dissociated_cell_sample_name)
-    worksheet.write(row_index,9, facs_population)
-    row_index += 1
+    for modality in ["RNA", "ATAC"]:
+        krienen_lab_identifier = f'{date}_HMBA_cj{mit_name}_Slab{slab}_Tile{tile}_{sort_method}_{modality}{x + 1}'
 
-    krienen_lab_identifier_atac = f'{date}_HMBA_cj{mit_name}_Slab{slab}_Tile{tile}_{sort_method}_ATAC{x + 1}'
-    worksheet.write(row_index, 0, krienen_lab_identifier_atac)
-    worksheet.write(row_index, 1, seq_portal)
-    worksheet.write(row_index, 2, elab_link)
-    worksheet.write(row_index, 3, date)
-    worksheet.write(row_index, 4, mit_name)
-    worksheet.write(row_index, 5, donor_name)
-    worksheet.write(row_index, 6, tissue_name)
-    worksheet.write(row_index, 8, dissociated_cell_sample_name)
-    worksheet.write(row_index, 9, facs_population)
-    row_index += 1
+        # Write data to the worksheet
+        worksheet.write(row_index, 0, krienen_lab_identifier)
+        worksheet.write(row_index, 1, seq_portal)
+        worksheet.write(row_index, 2, elab_link)
+        worksheet.write(row_index, 3, date)
+        worksheet.write(row_index, 4, mit_name)
+        worksheet.write(row_index, 5, donor_name)
+        worksheet.write(row_index, 6, tissue_name)
+        worksheet.write(row_index, 8, dissociated_cell_sample_name)
+        worksheet.write(row_index, 9, facs_population)
+
+        row_index += 1
 
 # Apply black fill to the tissue_name_old column for all rows
 for x in range(rxn_number * 2):  # Multiply by 2 for RNA and ATAC rows
-    worksheet.write(x + 1, 7, '', black_fill)  # Column H (index 7)
+    worksheet.write(x + 1, 7, '', black_fill)
 
 worksheet.autofit()
 workbook.close()
