@@ -1,0 +1,4 @@
+setuptools~=75.8.0
+XlsxWriter~=3.2.2
+pyperclip~=1.9.0
+python-dateutil~=2.9.0.post0
