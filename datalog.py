@@ -4,6 +4,11 @@ import xlsxwriter
 import pyperclip
 import dateutil.parser
 
+if getattr(sys, 'frozen', False):
+    data_dir = os.path.join(sys._MEIPASS, 'data')
+else:
+    data_dir = 'data'
+
 # --- Persistent Global Counter Setup ---
 COUNTER_FILE = 'sample_name_counter.json'
 if os.path.exists(COUNTER_FILE):
