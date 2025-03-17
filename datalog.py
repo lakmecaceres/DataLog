@@ -1,16 +1,21 @@
 import os
 import json
+import sys
 import xlsxwriter
 import pyperclip
 import dateutil.parser
+from datetime import datetime
 
 if getattr(sys, 'frozen', False):
-    data_dir = os.path.join(sys._MEIPASS, 'data')
+    # If running as compiled executable
+    script_dir = os.path.dirname(sys.executable)
 else:
-    data_dir = 'data'
+    # If running as regular script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
 
 # --- Persistent Global Counter Setup ---
-COUNTER_FILE = 'sample_name_counter.json'
+COUNTER_FILE = os.path.join(script_dir, 'sample_name_counter.json')
+workbook_path = os.path.join(script_dir, 'datalog.xlsx')
 if os.path.exists(COUNTER_FILE):
     with open(COUNTER_FILE, 'r') as f:
         sample_name_counter_data = json.load(f)
@@ -23,7 +28,7 @@ else:
 print("If multiple reactions are run, separate input values using commas.")
 
 # Make the file and a worksheet
-workbook = xlsxwriter.Workbook('datalog.xlsx')
+workbook = xlsxwriter.Workbook(workbook_path)
 worksheet = workbook.add_worksheet('hmba')
 bold = workbook.add_format({'bold': True})  # Define bold formatting
 black_fill = workbook.add_format({'bg_color': 'black'})  # Define black fill formatting
@@ -31,9 +36,21 @@ yellow_fill = workbook.add_format({'bg_color': '#FFFF00'})  # Define yellow fill
 
 # Date formatter
 def convert(exp_date):
+    # First check if input is already valid YYMMDD format
+    clean_date = "".join(c for c in exp_date if c.isdigit())
+
+    if len(clean_date) == 6:
+        try:
+            # Validate if it's a real date
+            datetime.strptime(clean_date, '%y%m%d')
+            return clean_date  # Return original 6-digit format if valid
+        except ValueError:
+            pass  # Continue to dateutil parsing if invalid
+
+    # If not valid YYMMDD, parse with dateutil
     try:
-        parsed_date = dateutil.parser.parse(exp_date)  # Detect date format
-        return parsed_date.strftime('%y%m%d')  # Convert to YYMMDD
+        parsed_date = dateutil.parser.parse(exp_date)
+        return parsed_date.strftime('%y%m%d')
     except ValueError:
         print('Invalid date format. Please try again.')
         return None
@@ -63,11 +80,12 @@ while True:
     if date:
         break
 
-# Marmoset name input with validation
+# Marmoset name input with validation and prefix addition
 while True:
-    mit_name = input("Input the name of the marmoset: ").strip().title()  # Convert input to title case
-    if mit_name in name_to_code:
-        donor_name = name_to_code[mit_name]  # Get the corresponding donor code
+    mit_name_input = input("Input the name of the marmoset: ").strip().title()
+    if mit_name_input in name_to_code:
+        mit_name = "cj" + mit_name_input  # Add prefix here
+        donor_name = name_to_code[mit_name_input]
         break
     else:
         print("Invalid name. Please enter one of: Croissant, Nutmeg, Jellybean, Rambo.")
@@ -470,7 +488,7 @@ for x in range(rxn_number):
     global_sample_counter += 1
 
     for modality in ["RNA", "ATAC"]:
-        krienen_lab_identifier = f'{date}_HMBA_cj{mit_name}_Slab{int(slab)}_Tile{int(tile)}_{sort_method}_{modality}{x + 1}'
+        krienen_lab_identifier = f'{date}_HMBA_{mit_name}_Slab{int(slab)}_Tile{int(tile)}_{sort_method}_{modality}{x + 1}'
         enriched_cell_sample_name = f'MPXM_{date}_{sorting_status}_{sorter_initials}_{port_well}'
         library_prep_date = rna_library_prep_date if modality == "RNA" else atac_library_prep_date
 
