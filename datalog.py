@@ -1,53 +1,92 @@
 import os
 import json
 import sys
-import xlsxwriter
 import pyperclip
 import dateutil.parser
 from datetime import datetime
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
 
+# --- Environment Setup ---
 if getattr(sys, 'frozen', False):
-    # If running as compiled executable
     script_dir = os.path.dirname(sys.executable)
 else:
-    # If running as regular script
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
-# --- Persistent Global Counter Setup ---
 COUNTER_FILE = os.path.join(script_dir, 'sample_name_counter.json')
 workbook_path = os.path.join(script_dir, 'datalog.xlsx')
+
+# Load or initialize counter data
 if os.path.exists(COUNTER_FILE):
     with open(COUNTER_FILE, 'r') as f:
-        sample_name_counter_data = json.load(f)
-    # Expect a JSON object with a "global" key; default to 83 if not found.
-    global_sample_counter = sample_name_counter_data.get("global", 83)
+        counter_data = json.load(f)
 else:
-    global_sample_counter = 83
+    counter_data = {
+        "next_counter": 90,  # Global P number tracker
+        "date_info": {},      # Tracks reactions and batches per date
+        "amp_counter": {}     # Tracks cDNA amplification batches
+    }
 
-# Initial prompt to the user
-print("If multiple reactions are run, separate input values using commas.")
+# --- Excel File Setup ---
+def initialize_excel():
+    if os.path.exists(workbook_path):
+        wb = load_workbook(workbook_path)
+    else:
+        wb = Workbook()
+        del wb['Sheet']
 
-# Make the file and a worksheet
-workbook = xlsxwriter.Workbook(workbook_path)
-worksheet = workbook.add_worksheet('hmba')
-bold = workbook.add_format({'bold': True})  # Define bold formatting
-black_fill = workbook.add_format({'bg_color': 'black'})  # Define black fill formatting
-yellow_fill = workbook.add_format({'bg_color': '#FFFF00'})  # Define yellow fill formatting for duplicates
+    headers = [
+        'krienen_lab_identifier', 'seq_portal', 'elab_link', 'experiment_start_date',
+        'mit_name', 'donor_name', 'tissue_name', 'tissue_name_old',
+        'dissociated_cell_sample_name', 'facs_population_plan', 'cell_prep_type',
+        'study', 'enriched_cell_sample_container_name', 'expc_cell_capture',
+        'port_well', 'enriched_cell_sample_name', 'enriched_cell_sample_quantity_count',
+        'barcoded_cell_sample_name', 'library_method', 'cDNA_amplification_method',
+        'cDNA_amplification_date', 'amplified_cdna_name', 'cDNA_pcr_cycles',
+        'rna_amplification_pass_fail', 'percent_cdna_longer_than_400bp',
+        'cdna_amplified_quantity_ng', 'cDNA_library_input_ng', 'library_creation_date',
+        'library_prep_set', 'library_name', 'tapestation_avg_size_bp',
+        'library_num_cycles', 'lib_quantification_ng', 'library_prep_pass_fail',
+        'r1_index', 'r2_index', 'ATAC_index', 'library_pool_name'
+    ]
 
-# Date formatter
+    if 'hmba' not in wb.sheetnames:
+        ws = wb.create_sheet('hmba')
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_num, value=header)
+            cell.font = Font(bold=True)
+    else:
+        ws = wb['hmba']
+        # Check if headers need to be written
+        if ws.max_row == 0 or not any(cell.value == 'krienen_lab_identifier' for cell in ws[1]):
+            for col_num, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col_num, value=header)
+                cell.font = Font(bold=True)
+
+    return wb, ws
+
+# Initialize workbook and worksheet
+workbook, worksheet = initialize_excel()
+current_row = worksheet.max_row
+if current_row == 1 and not any(cell.value for cell in worksheet[1]):
+    current_row = 1  # Empty sheet
+else:
+    current_row += 1  # Append after last row
+
+# --- Style Definitions ---
+black_fill = PatternFill(start_color='000000', fill_type='solid')
+bold_font = Font(bold=True)
+
+# --- Date Conversion Function ---
 def convert(exp_date):
-    # First check if input is already valid YYMMDD format
     clean_date = "".join(c for c in exp_date if c.isdigit())
-
     if len(clean_date) == 6:
         try:
-            # Validate if it's a real date
             datetime.strptime(clean_date, '%y%m%d')
-            return clean_date  # Return original 6-digit format if valid
+            return clean_date
         except ValueError:
-            pass  # Continue to dateutil parsing if invalid
-
-    # If not valid YYMMDD, parse with dateutil
+            pass
     try:
         parsed_date = dateutil.parser.parse(exp_date)
         return parsed_date.strftime('%y%m%d')
@@ -55,15 +94,15 @@ def convert(exp_date):
         print('Invalid date format. Please try again.')
         return None
 
-# Dictionary to map names to codes
+# --- Name Mapping Dictionaries ---
 name_to_code = {
     "Croissant": "CJ23.56.002",
     "Nutmeg": "CJ23.56.003",
-    "Jellybean": "CJ24.56.004",
-    "Rambo": "CJ24.56.005"
+    "Jellybean": "CJ24.56.001",
+    "Rambo": "CJ24.56.004",
+    "Morel": "CJ24.56.015"
 }
 
-# Mapping of full names to abbreviations (case-insensitive)
 tile_location_map = {
     "BRAINSTEM": "BS",
     "BS": "BS",
@@ -73,24 +112,40 @@ tile_location_map = {
     "CB": "CB"
 }
 
-# Date prompt
+# --- User Input Collection ---
+print("If multiple reactions are run, separate input values using commas.")
+
+# Date input
 while True:
     date_input = input('Input the date of the experiment: ')
-    date = convert(date_input)
-    if date:
+    current_date = convert(date_input)
+    if current_date:
         break
 
-# Marmoset name input with validation and prefix addition
+# Initialize counter variables
+date_info = counter_data["date_info"]
+next_counter = counter_data["next_counter"]
+
+if current_date not in date_info:
+    date_info[current_date] = {
+        "total_reactions": 0,
+        "batches": []
+    }
+
+date_entry = date_info[current_date]
+existing_total = date_entry["total_reactions"]
+
+# Marmoset name input
 while True:
     mit_name_input = input("Input the name of the marmoset: ").strip().title()
     if mit_name_input in name_to_code:
-        mit_name = "cj" + mit_name_input  # Add prefix here
+        mit_name = "cj" + mit_name_input
         donor_name = name_to_code[mit_name_input]
         break
     else:
-        print("Invalid name. Please enter one of: Croissant, Nutmeg, Jellybean, Rambo.")
+        print("Invalid name. Please enter one of: Croissant, Nutmeg, Jellybean, Rambo, Morel.")
 
-# Slab number input with validation
+# Slab number input
 while True:
     slab_input = input("Input the slab number: ").strip()
     try:
@@ -100,7 +155,7 @@ while True:
     except ValueError:
         print("Invalid slab number. Please enter a numeric value.")
 
-# Tile number input with validation and zero-padding
+# Tile number input
 while True:
     tile_input = input("Input the tile number: ").strip()
     try:
@@ -110,59 +165,50 @@ while True:
     except ValueError:
         print("Invalid tile number. Please enter a numeric value.")
 
-# Prompt the user for hemisphere information
+# Hemisphere processing
 while True:
-    hemisphere = input("Did the tile come from the left hemisphere (LH), right hemisphere (RH), or both? ").strip().lower()
+    hemisphere = input(
+        "Did the tile come from the left hemisphere (LH), right hemisphere (RH), or both? ").strip().lower()
     if hemisphere in ["left", "lh", "right", "rh", "both"]:
         break
     else:
         print("Invalid input. Please enter left/LH, right/RH, or both.")
 
-# Normalize hemisphere input
-if hemisphere in ["left", "lh"]:
-    hemisphere = "LH"
-elif hemisphere in ["right", "rh"]:
-    hemisphere = "RH"
-else:
-    hemisphere = "BOTH"
-
-# Adjust the slab number based on hemisphere
+hemisphere = hemisphere.upper().replace("LEFT", "LH").replace("RIGHT", "RH")
 if hemisphere == "RH":
-    slab = str(int(slab) + 40).zfill(2)  # Add 40 and zero-pad to 2 digits
+    slab = str(int(slab) + 40).zfill(2)
 elif hemisphere == "BOTH":
-    slab = str(int(slab) + 90).zfill(2)  # Add 90 and zero-pad to 2 digits
+    slab = str(int(slab) + 90).zfill(2)
 else:
-    slab = slab.zfill(2)  # Zero-pad to 2 digits (no adjustment for LH)
+    slab = slab.zfill(2)
 
-# Add a new prompt for the tile location
+# Tile location input
 while True:
-    tile_location_input = input("Is the tile from the Brainstem (BS), Cortex (CX), and/or Cerebellum (CB)? ").strip().upper()
-    # Split the input into a list of locations
+    tile_location_input = input(
+        "Is the tile from the Brainstem (BS), Cortex (CX), and/or Cerebellum (CB)? ").strip().upper()
     tile_locations = []
     for part in tile_location_input.replace(" and ", ",").split(","):
         part = part.strip()
         if part in tile_location_map:
             tile_locations.append(tile_location_map[part])
-        elif part in ["BS", "CX", "CB"]:  # Allow direct abbreviations
+        elif part in ["BS", "CX", "CB"]:
             tile_locations.append(part)
     if tile_locations:
-        tile_location_abbr = "-".join(tile_locations)  # Join locations with dashes
+        tile_location_abbr = "-".join(tile_locations)
         break
     else:
         print("Invalid input. Please enter Brainstem/BS, Cortex/CX, or Cerebellum/CB, separated by commas or 'and'.")
 
-# Prompt for sort method only once
+# Sort method handling
 while True:
     sort_method = input("Input the sort method (pooled/unsorted/DAPI?): ").strip()
     if sort_method.lower() in ["pooled", "unsorted", "dapi"]:
         break
     print("Invalid sort method. Please enter pooled, unsorted, or DAPI.")
 
-# Convert "dapi" to "DAPI" if the user enters it in lowercase
-if sort_method.lower() == "dapi":
-    sort_method = "DAPI"  # Force uppercase
+sort_method = sort_method.upper() if sort_method.lower() == "dapi" else sort_method
 
-# Number of reactions input with validation
+# Reaction number input
 while True:
     rxn_number_input = input("Input the number of reactions you ran: ").strip()
     try:
@@ -170,53 +216,79 @@ while True:
         if rxn_number > 0:
             break
         else:
-            print("Please enter a positive integer for the number of reactions.")
+            print("Please enter a positive integer.")
     except ValueError:
-        print("Invalid input. Please enter a numeric value for the number of reactions.")
+        print("Invalid input. Please enter a numeric value.")
 
-seq_portal = "no"  # Automatically set seq_portal status to "no"
-elab_link = pyperclip.paste()  # Automatically copies link from clipboard
+# Update batch calculations
+total_reactions_after = existing_total + rxn_number
+batches_before = (existing_total + 7) // 8
+batches_after = (total_reactions_after + 7) // 8
+new_batches_needed = batches_after - batches_before
+
+new_p_numbers = [next_counter + i for i in range(new_batches_needed)]
+next_counter += new_batches_needed
+
+all_batches = date_entry["batches"].copy()
+all_batches.extend({"p_number": p, "count": 0} for p in new_p_numbers)
+
+port_wells = []
+for x in range(rxn_number):
+    global_idx = existing_total + x + 1
+    batch_idx = (global_idx - 1) // 8
+    p_number = all_batches[batch_idx]["p_number"]
+    port_well = (global_idx - 1) % 8 + 1
+    port_wells.append((p_number, port_well))
+
+# Update counters
+date_entry["total_reactions"] = total_reactions_after
+date_entry["batches"] = all_batches
+counter_data.update({
+    "date_info": date_info,
+    "next_counter": next_counter
+})
+
+# Initialize common values
+seq_portal = "no"
+elab_link = pyperclip.paste()
 tissue_name = f"{donor_name}.{tile_location_abbr}.{slab}.{tile}"
-dissociated_cell_sample_name = f'{date}_{tissue_name}.Multiome'
+dissociated_cell_sample_name = f'{current_date}_{tissue_name}.Multiome'
 cell_prep_type = "nuclei"
 
-# Sorter initials input with validation
+# Sorter initials
 while True:
     sorter_initials = input("Enter the sorter's first and last initials: ").strip().upper()
     if sorter_initials:
         break
     else:
-        print("Initials cannot be empty. Please enter valid initials.")
+        print("Initials cannot be empty.")
 
-# Determine facs_population_plan based on sort_method
-if sort_method == "pooled":
+# FACS population handling
+if sort_method.lower() == "pooled":
     while True:
-        proportions = input("Enter the proportions of NeuN+/Dneg/Olig2+ (e.g., 70/20/10 or 100/0/0): ").strip()
+        proportions = input("Enter the proportions of NeuN+/Dneg/Olig2+ (e.g., 70/20/10): ").strip()
         if "/" in proportions:
             proportions_list = proportions.split("/")
             if len(proportions_list) == 3:
                 try:
-                    proportions_int = [int(p.strip()) for p in proportions_list]
+                    proportions_int = [int(p) for p in proportions_list]
                     if sum(proportions_int) == 100:
                         facs_population = "/".join(map(str, proportions_int))
                         break
                     else:
-                        print("Invalid input. The proportions must add up to 100.")
+                        print("Proportions must sum to 100.")
                 except ValueError:
-                    print("Invalid input. Please enter numbers for the proportions.")
+                    print("Please enter numbers only.")
             else:
-                print("Invalid input. Please enter three proportions separated by slashes (e.g., 70/20/10).")
+                print("Please enter three values separated by slashes.")
         else:
-            print("Invalid input. Please use slashes to separate the proportions (e.g., 70/20/10).")
-elif sort_method == "unsorted":
+            print("Invalid format. Use slashes to separate values.")
+elif sort_method.lower() == "unsorted":
     facs_population = "no_FACS"
-elif sort_method == "DAPI":
-    facs_population = "DAPI"
 else:
-    print("Invalid sort method. Please enter pooled, unsorted, or DAPI.")
-    exit()
+    facs_population = "DAPI"
 
-# Prompt for HMBA Subcortex project with validation
+# Study/project handling
 while True:
     is_hmba_subcortex = input("Is the sample for the HMBA Subcortex project? (yes/no): ").strip().lower()
     if is_hmba_subcortex in ["yes", "y"]:
@@ -229,35 +301,27 @@ while True:
         else:
             print("Project name cannot be empty.")
     else:
-        print("Invalid input. Please answer yes or no.")
+        print("Please answer yes or no.")
 
-if sort_method in ["pooled", "DAPI"]:
-    sorting_status = "PS"
-elif sort_method == "unsorted":
-    sorting_status = "PN"
-else:
-    print("Invalid sort method. Please enter pooled, unsorted, or DAPI.")
-    exit()
+sorting_status = "PS" if sort_method.lower() in ["pooled", "dapi"] else "PN"
+enriched_cell_sample_container_name = f"MPXM_{current_date}_{sorting_status}_{sorter_initials}"
 
-enriched_cell_sample_container_name = f"MPXM_{date}_{sorting_status}_{sorter_initials}"
-
-# Expected cell capture input with validation
+# Cell handling metrics
 while True:
     expected_cell_capture_input = input("What is the expected recovery?: ").strip()
     try:
         expected_cell_capture = int(expected_cell_capture_input)
         break
     except ValueError:
-        print("Invalid input. Please enter a numeric value for expected recovery.")
+        print("Invalid input. Please enter a numeric value.")
 
-# Ask for concentration and volume with validation
 while True:
     concentration_input = input("Enter the concentration of nuclei/cells: ").replace(",", "").strip()
     try:
         concentration = float(concentration_input)
         break
     except ValueError:
-        print("Invalid input. Please enter a numeric value for concentration.")
+        print("Invalid input. Please enter a numeric value.")
 
 while True:
     volume_input = input("Enter the volume used (µL): ").strip()
@@ -265,22 +329,32 @@ while True:
         volume = float(volume_input)
         break
     except ValueError:
-        print("Invalid input. Please enter a numeric value for volume.")
+        print("Invalid input. Please enter a numeric value.")
 
-enriched_cell_sample_quantity_count = concentration * volume
+enriched_cell_sample_quantity_count = round(concentration * volume)
 
-# Prompt for the cDNA amplification date
+# Library date handling
 while True:
     cdna_amplification_date_input = input('Input the cDNA amplification date: ')
     cdna_amplification_date = convert(cdna_amplification_date_input)
     if cdna_amplification_date:
         break
 
-# Track reactions for amplified_cdna_name
-date_reaction_counter = {}
+while True:
+    atac_library_prep_date_input = input("Enter the ATAC library preparation date: ")
+    atac_library_prep_date = convert(atac_library_prep_date_input)
+    if atac_library_prep_date:
+        break
+
+while True:
+    rna_library_prep_date_input = input("Enter the cDNA library preparation date: ")
+    rna_library_prep_date = convert(rna_library_prep_date_input)
+    if rna_library_prep_date:
+        break
+
+# cDNA data collection
 rna_amplification_pass_fail = "Pass"
 
-# Prompt user for comma-separated values for cDNA amplification data
 while True:
     cdna_pcr_cycles_list = input("Enter the number of cDNA amp cycles for each reaction: ").split(',')
     if len(cdna_pcr_cycles_list) == rxn_number:
@@ -308,57 +382,47 @@ while True:
         pass
     print(f"Please enter {rxn_number} numeric values.")
 
-# Calculate total cDNA quantity in ng (each value multiplied by 40µL)
 cdna_amplified_quantity_ng_list = [conc * 40 for conc in cdna_concentration_list]
 
-# Ask user for ATAC and RNA library prep dates
-while True:
-    atac_library_prep_date_input = input("Enter the ATAC library preparation date: ")
-    atac_library_prep_date = convert(atac_library_prep_date_input)
-    if atac_library_prep_date:
-        break
-
-while True:
-    rna_library_prep_date_input = input("Enter the cDNA library preparation date: ")
-    rna_library_prep_date = convert(rna_library_prep_date_input)
-    if rna_library_prep_date:
-        break
-
-# Function to convert index to letter-number format (e.g., 1A -> A1)
+# Index handling functions
 def convert_index(index):
     index = index.strip().upper()
-    if len(index) == 2:
-        if index[0].isdigit() and index[1].isalpha():
-            return f"{index[1]}{index[0]}"
-        elif index[0].isalpha() and index[1].isdigit():
+    if len(index) == 3:
+        if index[0].isdigit() and index[1].isdigit() and index[2].isalpha():
+            return f"{index[2]}{index[0]}{index[1]}"
+        elif index[0].isalpha() and index[1].isdigit() and index[2].isdigit():
             return index
+    elif len(index) == 2:
+        if index[0].isdigit() and index[1].isalpha():
+            return f"{index[1]}0{index[0]}"
+        elif index[0].isalpha() and index[1].isdigit():
+            return f"{index[0]}0{index[1]}"
     return None
 
-# Prompt user for comma-separated indices for ATAC and RNA
-while True:
-    atac_indices_input = input("Enter the ATAC library indices: ").strip().upper()
-    atac_indices = [convert_index(index) for index in atac_indices_input.split(",")]
-    if all(atac_indices) and len(atac_indices) == rxn_number:
-        break
-    print(f"Please enter {rxn_number} valid ATAC indices (e.g., A1, 2B, C3).")
-
-while True:
-    rna_indices_input = input("Enter the cDNA library indices: ").strip().upper()
-    rna_indices = [convert_index(index) for index in rna_indices_input.split(",")]
-    if all(rna_indices) and len(rna_indices) == rxn_number:
-        break
-    print(f"Please enter {rxn_number} valid cDNA indices (e.g., D4, 5E, F6).")
-
-# Pad indices to 3 characters (e.g., A1 -> A01)
 def pad_index(index):
     if len(index) == 2 and index[0].isalpha() and index[1].isdigit():
         return f"{index[0]}0{index[1]}"
     return index
 
-atac_indices = [pad_index(index) for index in atac_indices]
-rna_indices = [pad_index(index) for index in rna_indices]
+# ATAC indices
+while True:
+    atac_indices_input = input("Enter the ATAC library indices: ").strip().upper()
+    atac_indices = [convert_index(index) for index in atac_indices_input.split(",")]
+    if all(atac_indices) and len(atac_indices) == rxn_number:
+        atac_indices = [pad_index(index) for index in atac_indices]
+        break
+    print(f"Please enter {rxn_number} valid ATAC indices (e.g., A1, 2B, C3).")
 
-# Prompt for Tapestation average size (RNA)
+# RNA indices
+while True:
+    rna_indices_input = input("Enter the cDNA library indices: ").strip().upper()
+    rna_indices = [convert_index(index) for index in rna_indices_input.split(",")]
+    if all(rna_indices) and len(rna_indices) == rxn_number:
+        rna_indices = [pad_index(index) for index in rna_indices]
+        break
+    print(f"Please enter {rxn_number} valid cDNA indices (e.g., D4, 5E, F6).")
+
+# Tapestation sizes
 while True:
     rna_sizes_input = input(f"Enter the Tapestation average size (bp) for cDNA libraries: ").strip()
     rna_sizes = rna_sizes_input.split(',')
@@ -370,7 +434,6 @@ while True:
         pass
     print(f"Please enter {rxn_number} integer values separated by commas.")
 
-# Prompt for Tapestation average size (ATAC)
 while True:
     atac_sizes_input = input(f"Enter the Tapestation average size (bp) for ATAC libraries: ").strip()
     atac_sizes = atac_sizes_input.split(',')
@@ -382,8 +445,7 @@ while True:
         pass
     print(f"Please enter {rxn_number} integer values separated by commas.")
 
-# --- New Code: Prompt for library_num_cycles ---
-# For RNA libraries:
+# Library cycles
 while True:
     library_num_cycles_rna_input = input(f"Enter the number of SI PCR cycles used for cDNA libraries: ").strip()
     try:
@@ -394,7 +456,6 @@ while True:
         pass
     print(f"Please enter {rxn_number} integer values separated by commas.")
 
-# For ATAC libraries:
 while True:
     library_num_cycles_atac_input = input(f"Enter the number of SI PCR cycles used for ATAC libraries: ").strip()
     try:
@@ -405,202 +466,140 @@ while True:
         pass
     print(f"Please enter {rxn_number} integer values separated by commas.")
 
-# --- New Code: Prompt for lib_quantification_ng (library concentrations in ng/uL) ---
-# For RNA libraries:
+# Library quantification
 while True:
     lib_quant_rna_input = input(f"Enter the cDNA library concentrations (ng/uL): ").strip()
     try:
-        lib_quant_rna = [float(x.strip()) for x in lib_quant_rna_input.split(',')]
+        lib_quant_rna = [round(float(x.strip())) for x in lib_quant_rna_input.split(',')]
         if len(lib_quant_rna) == rxn_number:
             break
     except ValueError:
         pass
     print(f"Please enter {rxn_number} numeric values separated by commas.")
 
-# For ATAC libraries:
 while True:
     lib_quant_atac_input = input(f"Enter the ATAC library concentrations (ng/uL): ").strip()
     try:
-        lib_quant_atac = [float(x.strip()) for x in lib_quant_atac_input.split(',')]
+        lib_quant_atac = [round(float(x.strip())) for x in lib_quant_atac_input.split(',')]
         if len(lib_quant_atac) == rxn_number:
             break
     except ValueError:
         pass
     print(f"Please enter {rxn_number} numeric values separated by commas.")
 
-# Define column headers with new ordering.
-headers = [
-    'krienen_lab_identifier',  # 0
-    'seq_portal',              # 1
-    'elab_link',               # 2
-    'experiment_start_date',   # 3
-    'mit_name',                # 4
-    'donor_name',              # 5
-    'tissue_name',             # 6
-    'tissue_name_old',         # 7
-    'dissociated_cell_sample_name',  # 8
-    'facs_population_plan',    # 9
-    'cell_prep_type',          # 10
-    'study',                   # 11
-    'enriched_cell_sample_container_name',  # 12
-    'expc_cell_capture',       # 13
-    'port_well',               # 14
-    'enriched_cell_sample_name',  # 15
-    'enriched_cell_sample_quantity_count',  # 16
-    'barcoded_cell_sample_name', # 17
-    'library_method',          # 18
-    'cDNA_amplification_method',  # 19
-    'cDNA_amplification_date', # 20
-    'amplified_cdna_name',     # 21
-    'cDNA_pcr_cycles',         # 22
-    'rna_amplification_pass_fail',  # 23
-    'percent_cdna_longer_than_400bp',  # 24
-    'cdna_amplified_quantity_ng',  # 25
-    'cDNA_library_input_ng',   # 26
-    'library_creation_date',   # 27
-    'library_prep_set',        # 28
-    'library_name',            # 29
-    'tapestation_avg_size_bp', # 30
-    'library_num_cycles',      # 31
-    'lib_quantification_ng',   # 32
-    'library_prep_pass_fail',  # 33
-    'r1_index',                # 34
-    'r2_index',                # 35
-    'ATAC_index',              # 36
-    'library_pool_name'        # 37
-]
-
-# Write headers to the first row
-for col_index, header in enumerate(headers):
-    worksheet.write(0, col_index, header, bold)
-
-# Track duplicate indices per (library_type, library_prep_date, library_index)
+# --- Excel Writing ---
 dup_index_counter = {}
+headers = [cell.value for cell in worksheet[1]]
 
-# --- Process Each Reaction ---
-# For each reaction, we generate one barcoded_cell_sample_name using the global counter.
-row_index = 1
 for x in range(rxn_number):
-    port_well = x + 1  # Well number starting from 1
-
-    # Generate a persistent barcoded sample name using the global counter
-    barcoded_cell_sample_name = f'P{str(global_sample_counter).zfill(4)}_{port_well}'
-    global_sample_counter += 1
+    p_number, port_well = port_wells[x]
+    barcoded_cell_sample_name = f'P{str(p_number).zfill(4)}_{port_well}'
 
     for modality in ["RNA", "ATAC"]:
-        krienen_lab_identifier = f'{date}_HMBA_{mit_name}_Slab{int(slab)}_Tile{int(tile)}_{sort_method}_{modality}{x + 1}'
-        enriched_cell_sample_name = f'MPXM_{date}_{sorting_status}_{sorter_initials}_{port_well}'
+        krienen_lab_identifier = f'{current_date}_HMBA_{mit_name}_Slab{int(slab)}_Tile{int(tile)}_{sort_method}_{modality}{x + 1}'
+        enriched_cell_sample_name = f'MPXM_{current_date}_{sorting_status}_{sorter_initials}_{port_well}'
         library_prep_date = rna_library_prep_date if modality == "RNA" else atac_library_prep_date
 
-        # Use the persistent barcoded sample name in the worksheet.
-        # Determine library method and set cDNA_amplification_method accordingly
         if modality == "RNA":
             library_method = "10xMultiome-RSeq"
-            cDNA_amplification_method = library_method
             library_type = "LPLCXR"
-            library_index = rna_indices[x]  # Use RNA index
+            library_index = rna_indices[x]
         else:
             library_method = "10xMultiome-ASeq"
             library_type = "LPLCXA"
-            library_index = atac_indices[x]  # Use ATAC index
-            cDNA_amplification_method = None
+            library_index = atac_indices[x]
 
-        # Update a local duplicate counter for library_prep_set (this counter is not persisted)
-        if library_prep_date not in dup_index_counter:
-            dup_index_counter[(library_type, library_prep_date, library_index)] = 1
-        else:
-            dup_index_counter[(library_type, library_prep_date, library_index)] += 1
-        library_prep_prefix = "LPLCXR_" if modality == "RNA" else "LPLCXA_"
-        library_prep_set = f"{library_prep_prefix}{library_prep_date}_{dup_index_counter[(library_type, library_prep_date, library_index)]}"
+        # Update library prep set counter
+        key = (library_type, library_prep_date, library_index)
+        dup_index_counter[key] = dup_index_counter.get(key, 0) + 1
 
+        library_prep_set = f"{library_type}_{library_prep_date}_{dup_index_counter[key]}"
         library_name = f"{library_prep_set}_{library_index}"
 
-        # Write data to worksheet columns
-        worksheet.write(row_index, 0, krienen_lab_identifier)
-        worksheet.write(row_index, 1, seq_portal)
-        worksheet.write(row_index, 2, elab_link)
-        worksheet.write(row_index, 3, date)
-        worksheet.write(row_index, 4, mit_name)
-        worksheet.write(row_index, 5, donor_name)
-        worksheet.write(row_index, 6, tissue_name)
-        worksheet.write(row_index, 8, dissociated_cell_sample_name)
-        worksheet.write(row_index, 9, facs_population)
-        worksheet.write(row_index, 10, cell_prep_type)
-        worksheet.write(row_index, 11, study)
-        worksheet.write(row_index, 12, enriched_cell_sample_container_name)
-        worksheet.write(row_index, 13, expected_cell_capture)
-        worksheet.write(row_index, 14, port_well)
-        worksheet.write(row_index, 15, enriched_cell_sample_name)
-        worksheet.write(row_index, 16, enriched_cell_sample_quantity_count)
-        worksheet.write(row_index, 17, barcoded_cell_sample_name)
-        worksheet.write(row_index, 18, library_method)
+        # Prepare data row
+        row_data = [
+            krienen_lab_identifier,  # Column 1
+            seq_portal,
+            elab_link,
+            current_date,
+            mit_name,
+            donor_name,
+            tissue_name,
+            None,  # tissue_name_old (will be filled black)
+            dissociated_cell_sample_name,
+            facs_population,
+            cell_prep_type,
+            study,
+            enriched_cell_sample_container_name,
+            expected_cell_capture,
+            port_well,
+            enriched_cell_sample_name,
+            enriched_cell_sample_quantity_count,
+            barcoded_cell_sample_name,
+            library_method,
+            "10xMultiome-RSeq" if modality == "RNA" else None,
+            cdna_amplification_date if modality == "RNA" else None,
+            None,  # amplified_cdna_name (filled conditionally)
+            cdna_pcr_cycles_list[x] if modality == "RNA" else None,
+            rna_amplification_pass_fail if modality == "RNA" else None,
+            percent_cdna_long_400bp_list[x] if modality == "RNA" else None,
+            cdna_amplified_quantity_ng_list[x] if modality == "RNA" else None,
+            (cdna_amplified_quantity_ng_list[x] * 0.25) if modality == "RNA" else None,
+            library_prep_date,
+            library_prep_set,
+            library_name,
+            rna_sizes[x] if modality == "RNA" else atac_sizes[x],
+            library_num_cycles_rna[x] if modality == "RNA" else library_num_cycles_atac[x],
+            (lib_quant_rna[x] * 35) if modality == "RNA" else (lib_quant_atac[x] * 20),
+            "Pass",
+            f"SI-TT-{rna_indices[x]}_i7" if modality == "RNA" else None,
+            f"SI-TT-{rna_indices[x]}_b(i5)" if modality == "RNA" else None,
+            f"SI-NA-{atac_indices[x]}" if modality == "ATAC" else None,
+            None  # library_pool_name
+        ]
+
+        # Handle amplified_cdna_name for RNA
         if modality == "RNA":
-            worksheet.write(row_index, 19, cDNA_amplification_method)
-        else:
-            worksheet.write(row_index, 19, '', black_fill)
-        worksheet.write(row_index, 20, cdna_amplification_date)
-        if modality == "ATAC":
-            worksheet.write(row_index, 20, '', black_fill)
-        worksheet.write(row_index, 22, cdna_pcr_cycles_list[x] if modality == "RNA" else '', black_fill if modality == "ATAC" else None)
-        worksheet.write(row_index, 24, percent_cdna_long_400bp_list[x] if modality == "RNA" else '', black_fill if modality == "ATAC" else None)
-        worksheet.write(row_index, 25, cdna_amplified_quantity_ng_list[x] if modality == "RNA" else '', black_fill if modality == "ATAC" else None)
-        # Write cDNA_library_input_ng (25% of cdna amplified quantity) into column 26
-        if modality == "RNA":
-            cdna_library_input_ng = cdna_amplified_quantity_ng_list[x] * 0.25
-            worksheet.write(row_index, 26, cdna_library_input_ng)
-        else:
-            worksheet.write(row_index, 26, '', black_fill)
-        worksheet.write(row_index, 27, library_prep_date)  # library_creation_date
-        worksheet.write(row_index, 28, library_prep_set)   # library_prep_set
-        worksheet.write(row_index, 29, library_name)         # library_name
-        if modality == "RNA":
-            worksheet.write(row_index, 30, rna_sizes[x])
-        else:
-            worksheet.write(row_index, 30, atac_sizes[x])
-        if modality == "RNA":
-            worksheet.write(row_index, 31, library_num_cycles_rna[x])
-        else:
-            worksheet.write(row_index, 31, library_num_cycles_atac[x])
-        if modality == "RNA":
-            worksheet.write(row_index, 32, lib_quant_rna[x] * 35)
-        else:
-            worksheet.write(row_index, 32, lib_quant_atac[x] * 20)
-        worksheet.write(row_index, 33, "Pass")
-        if modality == "RNA":
-            r1_val = f"SI-TT-{rna_indices[x]}_i7"
-            r2_val = f"SI-TT-{rna_indices[x]}_b(i5)"
-            worksheet.write(row_index, 34, r1_val)
-            worksheet.write(row_index, 35, r2_val)
-            worksheet.write(row_index, 36, '', black_fill)
-        else:
-            worksheet.write(row_index, 34, '', black_fill)
-            worksheet.write(row_index, 35, '', black_fill)
-            worksheet.write(row_index, 36, f"SI-NA-{atac_indices[x]}")
-        if modality == "RNA":
-            if date not in date_reaction_counter:
-                date_reaction_counter[date] = 0
-            reaction_count = date_reaction_counter[date]
-            letter = chr(65 + (reaction_count % 8))  # A-H
+            if current_date not in counter_data["amp_counter"]:
+                counter_data["amp_counter"][current_date] = 0
+            reaction_count = counter_data["amp_counter"][current_date]
+            letter = chr(65 + (reaction_count % 8))
             batch_num_for_amp = (reaction_count // 8) + 1
-            amplified_cdna_name = f"APLCXR_{cdna_amplification_date}_{batch_num_for_amp}_{letter}"
-            worksheet.write(row_index, 21, amplified_cdna_name)
-            date_reaction_counter[date] += 1
-        else:
-            worksheet.write(row_index, 21, '', black_fill)
-        if modality == "RNA":
-            worksheet.write(row_index, 23, rna_amplification_pass_fail)
-        else:
-            worksheet.write(row_index, 23, '', black_fill)
+            row_data[20] = f"APLCXR_{cdna_amplification_date}_{batch_num_for_amp}_{letter}"
+            counter_data["amp_counter"][current_date] += 1
 
-        row_index += 1
+        # Write to Excel
+        for col_num, value in enumerate(row_data, 1):
+            cell = worksheet.cell(row=current_row, column=col_num, value=value)
+            # Apply black fill for ATAC empty cells
+            if modality == "ATAC" and value is None:
+                cell.fill = black_fill
 
-# Apply black fill to the tissue_name_old column for all rows
-for x in range(rxn_number * 2):  # Multiply by 2 for RNA and ATAC rows
-    worksheet.write(x + 1, 7, '', black_fill)
+        # Apply black fill to tissue_name_old
+        tissue_old_col = headers.index('tissue_name_old') + 1
+        worksheet.cell(row=current_row, column=tissue_old_col).fill = black_fill
 
-worksheet.autofit()
-workbook.close()
+        current_row += 1
 
-# --- Persist the Updated Global Counter ---
+# Adjust column widths
+for column in worksheet.columns:
+    max_length = 0
+    column_letter = get_column_letter(column[0].column)
+    for cell in column:
+        try:
+            cell_value = str(cell.value)
+            if len(cell_value) > max_length:
+                max_length = len(cell_value)
+        except:
+            pass
+    adjusted_width = (max_length + 2)
+    worksheet.column_dimensions[column_letter].width = adjusted_width
+
+# Save outputs
+workbook.save(workbook_path)
+
+# --- Persist Data ---
 with open(COUNTER_FILE, 'w') as f:
-    json.dump({"global": global_sample_counter}, f)
+    json.dump(counter_data, f)
+
+print(f"Data successfully appended to {workbook_path}")
