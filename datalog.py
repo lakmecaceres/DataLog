@@ -20,13 +20,18 @@ workbook_path = os.path.join(script_dir, 'datalog.xlsx')
 # Load or initialize counter data
 if os.path.exists(COUNTER_FILE):
     with open(COUNTER_FILE, 'r') as f:
-        counter_data = json.load(f)
+        try:
+            counter_data = json.load(f)
+        except json.JSONDecodeError:
+            counter_data = {}
 else:
-    counter_data = {
-        "next_counter": 90,  # Global P number tracker
-        "date_info": {},      # Tracks reactions and batches per date
-        "amp_counter": {}     # Tracks cDNA amplification batches
-    }
+    counter_data = {}
+
+# Ensure required keys are present
+counter_data.setdefault("next_counter", 90)  # Global P number tracker
+counter_data.setdefault("date_info", {})     # Tracks reactions and batches per date
+counter_data.setdefault("amp_counter", {})   # Tracks cDNA amplification batches
+
 
 # --- Excel File Setup ---
 def initialize_excel():
@@ -34,10 +39,9 @@ def initialize_excel():
         wb = load_workbook(workbook_path)
     else:
         wb = Workbook()
-        del wb['Sheet']
-
-    headers = [
-        'krienen_lab_identifier', 'seq_portal', 'elab_link', 'experiment_start_date',
+        ws = wb.active
+        ws.title = "HMBA"
+        headers = ['krienen_lab_identifier', 'seq_portal', 'elab_link', 'experiment_start_date',
         'mit_name', 'donor_name', 'tissue_name', 'tissue_name_old',
         'dissociated_cell_sample_name', 'facs_population_plan', 'cell_prep_type',
         'study', 'enriched_cell_sample_container_name', 'expc_cell_capture',
@@ -48,22 +52,24 @@ def initialize_excel():
         'cdna_amplified_quantity_ng', 'cDNA_library_input_ng', 'library_creation_date',
         'library_prep_set', 'library_name', 'tapestation_avg_size_bp',
         'library_num_cycles', 'lib_quantification_ng', 'library_prep_pass_fail',
-        'r1_index', 'r2_index', 'ATAC_index', 'library_pool_name'
-    ]
+        'r1_index', 'r2_index', 'ATAC_index', 'library_pool_name']
 
-    if 'hmba' not in wb.sheetnames:
-        ws = wb.create_sheet('hmba')
-        for col_num, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col_num, value=header)
-            cell.font = Font(bold=True)
-    else:
-        ws = wb['hmba']
-        # Check if headers need to be written
-        if ws.max_row == 0 or not any(cell.value == 'krienen_lab_identifier' for cell in ws[1]):
-            for col_num, header in enumerate(headers, 1):
-                cell = ws.cell(row=1, column=col_num, value=header)
-                cell.font = Font(bold=True)
+        ws.append(headers)
 
+        # Apply Arial 10 font to headers
+        header_font = Font(name="Arial", size=10, bold=True)
+        for col_num, header in enumerate(headers, start=1):
+            ws.cell(row=1, column=col_num).font = header_font
+
+    # Apply Arial 10 font to all existing cells
+    default_font = Font(name="Arial", size=10)
+    for sheet in wb.worksheets:
+        for row in sheet.iter_rows():
+            for cell in row:
+                cell.font = default_font
+
+    ws = wb.active
+    wb.save(workbook_path)
     return wb, ws
 
 # Initialize workbook and worksheet
@@ -511,8 +517,9 @@ for x in range(rxn_number):
 
         # Update library prep set counter
         key = (library_type, library_prep_date, library_index)
-        dup_index_counter[key] = dup_index_counter.get(key, 0) + 1
 
+        # Initialize or increment the counter for the key
+        dup_index_counter[key] = dup_index_counter.get(key, 0) + 1
         library_prep_set = f"{library_type}_{library_prep_date}_{dup_index_counter[key]}"
         library_name = f"{library_prep_set}_{library_index}"
 
@@ -565,7 +572,7 @@ for x in range(rxn_number):
             reaction_count = counter_data["amp_counter"][current_date]
             letter = chr(65 + (reaction_count % 8))
             batch_num_for_amp = (reaction_count // 8) + 1
-            row_data[20] = f"APLCXR_{cdna_amplification_date}_{batch_num_for_amp}_{letter}"
+            row_data[21] = f"APLCXR_{cdna_amplification_date}_{batch_num_for_amp}_{letter}"
             counter_data["amp_counter"][current_date] += 1
 
         # Write to Excel
@@ -600,6 +607,9 @@ workbook.save(workbook_path)
 
 # --- Persist Data ---
 with open(COUNTER_FILE, 'w') as f:
-    json.dump(counter_data, f)
+    json.dump(counter_data, f, indent=4)
+
+if not os.path.exists(workbook_path):
+    print(f"Warning: Workbook file {workbook_path} not found, creating a new one.")
 
 print(f"Data successfully appended to {workbook_path}")
