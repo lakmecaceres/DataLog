@@ -1,6 +1,6 @@
 {
     "global": 88,
-    "next_counter": 92,
+    "next_counter": 94,
     "date_info": {
         "250301": {
             "total_reactions": 1,
@@ -12,10 +12,23 @@
             ]
         },
         "060405": {
-            "total_reactions": 8,
+            "total_reactions": 10,
             "batches": [
                 {
                     "p_number": 91,
+                    "count": 0
+                },
+                {
+                    "p_number": 93,
+                    "count": 0
+                }
+            ]
+        },
+        "250708": {
+            "total_reactions": 2,
+            "batches": [
+                {
+                    "p_number": 92,
                     "count": 0
                 }
             ]
@@ -23,6 +36,7 @@
     },
     "amp_counter": {
         "250301": 1,
-        "060405": 8
+        "060405": 10,
+        "250708": 2
     }
 }
