@@ -1,6 +1,7 @@
 import sys
 import os
 import json
+import pandas as pd
 import pyperclip
 import dateutil.parser
 from datetime import datetime
@@ -9,17 +10,57 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QLabel, QLineEdit, QComboBox, QPushButton, QScrollArea,
-                             QMessageBox, QGridLayout, QGroupBox, QTabWidget)
-from PyQt6.QtCore import Qt
+                             QMessageBox, QGridLayout, QGroupBox, QTabWidget, QFileDialog)
+from PyQt6.QtCore import Qt, QTimer
 
 
 class DataLogGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.init_constants()
-        self.init_ui()
+        self.setWindowTitle("Krienen Data Logger")
+        self.init_constants()  # Initialize constants first
         self.black_fill = PatternFill(start_color='000000', fill_type='solid')
         self.bold_font = Font(bold=True)
+        QTimer.singleShot(0, self.init_ui)
+
+    def get_save_location(self):
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Excel File",
+            "",  # Default directory, empty means last used
+            "Excel Files (*.xlsx);;All Files (*)",
+            options=options
+        )
+        return file_name
+
+    def save_data(self):
+        file_location = self.get_save_location()
+        if file_location:  # Only proceed if user didn't cancel
+            if not file_location.endswith('.xlsx'):
+                file_location += '.xlsx'
+            try:
+                # Create DataFrame from your data
+                data = {
+                    'krienen_lab_identifier': [self.krienen_lab_identifier],
+                    'seq_portal': [self.seq_portal],
+                    # ... add all your other fields here ...
+                    'Current Date and Time (UTC)': [self.get_current_time()],
+                    'Current User Login': [self.get_current_user()]
+                }
+                df = pd.DataFrame(data)
+                df.to_excel(file_location, index=False)
+                QMessageBox.information(self, "Success", "Data saved successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save file: {str(e)}")
+
+    # Then find where you connect your save button and update it to use this method:
+    def setup_buttons(self):  # or whatever method contains your button setup
+        self.save_button = QPushButton("Save")
+        self.save_button.clicked.connect(self.save_data)  # Connect to the new save_data method
+
+    def delayed_init(self):
+        self.init_ui()
 
     def init_constants(self):
         if getattr(sys, 'frozen', False):
@@ -50,7 +91,6 @@ class DataLogGUI(QMainWindow):
         self.load_counter_data()
 
     def init_ui(self):
-        self.setWindowTitle('DataLog Entry Form')
         self.setGeometry(100, 100, 1000, 800)
 
         main_widget = QWidget()
