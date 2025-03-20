@@ -1,0 +1,3 @@
+([('DataLogger',
+   '/Users/Lakme/Documents/PyCharm/DataLog/dist/DataLogger',
+   'EXECUTABLE')],)
