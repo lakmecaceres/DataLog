@@ -25,18 +25,11 @@ class DataLogGUI(QMainWindow):
 
     def get_save_location(self):
         config_file = 'config.json'
-
-        # Check if the config file exists and read the file location from it
         if os.path.exists(config_file):
             with open(config_file, 'r') as f:
                 config = json.load(f)
-                file_location = config.get('file_location')
+                return config.get('file_location')
 
-                # Check if the saved file location is writable
-                if os.access(os.path.dirname(file_location), os.W_OK):
-                    return file_location
-
-        # Prompt the user to select a save location
         file_name, _ = QFileDialog.getSaveFileName(
             self,
             "Save Excel File",
@@ -45,59 +38,30 @@ class DataLogGUI(QMainWindow):
         )
 
         if file_name:
-            # Save the file location to the config file
             with open(config_file, 'w') as f:
                 json.dump({'file_location': file_name}, f)
 
         return file_name
 
-    def on_submit(self):
-        try:
-            if not self.validate_inputs():
-                return
-
-            # Get or prompt for file location
-            file_location = self.get_save_location()
-            if not file_location:
-                return  # User canceled the save dialog
-
-            # Process the form data and update Excel
-            self.process_form_data(file_location)
-
-            # Adjust column widths
-            workbook = load_workbook(file_location)
-            worksheet = workbook.active
-
-            for column in worksheet.columns:
-                max_length = 0
-                column_letter = get_column_letter(column[0].column)
-                for cell in column:
-                    try:
-                        cell_value = str(cell.value)
-                        if len(cell_value) > max_length:
-                            max_length = len(cell_value)
-                    except:
-                        pass
-                adjusted_width = (max_length + 2)
-                worksheet.column_dimensions[column_letter].width = adjusted_width
-
-            workbook.save(file_location)
-
-            QMessageBox.information(
-                self,
-                "Success",
-                f"Data successfully appended to {file_location}"
-            )
-
-            # Clear form fields after successful submission
-            self.clear_form_fields()
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"An error occurred while processing the data:\n{str(e)}"
-            )
+    def save_data(self):
+        file_location = self.get_save_location()
+        if file_location:  # Only proceed if user didn't cancel
+            if not file_location.endswith('.xlsx'):
+                file_location += '.xlsx'
+            try:
+                # Create DataFrame from your data
+                data = {
+                    'krienen_lab_identifier': [self.krienen_lab_identifier],
+                    'seq_portal': [self.seq_portal],
+                    # ... add all your other fields here ...
+                    'Current Date and Time (UTC)': [self.get_current_time()],
+                    'Current User Login': [self.get_current_user()]
+                }
+                df = pd.DataFrame(data)
+                df.to_excel(file_location, index=False)
+                QMessageBox.information(self, "Success", "Data saved successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save file: {str(e)}")
 
     # Then find where you connect your save button and update it to use this method:
     def setup_buttons(self):  # or whatever method contains your button setup
@@ -523,10 +487,10 @@ class DataLogGUI(QMainWindow):
 
         return wb
 
-    def process_form_data(self, file_location):
+    def process_form_data(self):
         # Load or create workbook
-        if os.path.exists(file_location):
-            workbook = load_workbook(file_location)
+        if os.path.exists(self.workbook_path):
+            workbook = load_workbook(self.workbook_path)
         else:
             workbook = self.initialize_excel()
 
@@ -654,7 +618,7 @@ class DataLogGUI(QMainWindow):
                 current_row += 1
 
         # Save workbook and counter data
-        workbook.save(file_location)
+        workbook.save(self.workbook_path)
         with open(self.COUNTER_FILE, 'w') as f:
             json.dump(self.counter_data, f, indent=4)
 
@@ -783,16 +747,11 @@ class DataLogGUI(QMainWindow):
             if not self.validate_inputs():
                 return
 
-            # Ask user where to save the file
-            file_location = self.get_save_location()
-            if not file_location:
-                return  # User canceled the save dialog
-
             # Process the form data and update Excel
-            self.process_form_data(file_location)
+            self.process_form_data()
 
             # Adjust column widths
-            workbook = load_workbook(file_location)
+            workbook = load_workbook(self.workbook_path)
             worksheet = workbook.active
 
             for column in worksheet.columns:
@@ -808,12 +767,12 @@ class DataLogGUI(QMainWindow):
                 adjusted_width = (max_length + 2)
                 worksheet.column_dimensions[column_letter].width = adjusted_width
 
-            workbook.save(file_location)
+            workbook.save(self.workbook_path)
 
             QMessageBox.information(
                 self,
                 "Success",
-                f"Data successfully appended to {file_location}"
+                f"Data successfully appended to {self.workbook_path}"
             )
 
             # Clear form fields after successful submission
