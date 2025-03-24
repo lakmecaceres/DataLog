@@ -1,19 +1,14 @@
 import sys
 import os
 import json
-import pandas as pd
-import pyperclip
-import dateutil.parser
 from datetime import datetime
-from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
-from openpyxl.utils import get_column_letter
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QLabel, QLineEdit, QComboBox, QPushButton, QScrollArea,
-                             QMessageBox, QGridLayout, QGroupBox, QTabWidget, QFileDialog,
+                             QMessageBox, QGridLayout, QTabWidget, QFileDialog,
                              QFrame, QListView)
 from PyQt6.QtCore import Qt, QTimer, QEvent
-from PyQt6.QtGui import QPalette, QColor
+from PyQt6.QtGui import QPalette, QColor, QCursor
 
 
 class FocusLineEdit(QLineEdit):
@@ -101,10 +96,52 @@ class DataLogGUI(QMainWindow):
         self.file_location = None
         self.workbook_path = None  # Will be set when user chooses location
         self.setWindowTitle("Krienen Data Logger")
-        self.init_constants()  # Initialize constants first
+
+        # Initialize these values early as they're lightweight
+        self.name_to_code = {
+            "Croissant": "CJ23.56.002",
+            "Nutmeg": "CJ23.56.003",
+            "Jellybean": "CJ24.56.001",
+            "Rambo": "CJ24.56.004",
+            "Morel": "CJ24.56.015"
+        }
+
+        self.tile_location_map = {
+            "BRAINSTEM": "BS",
+            "BS": "BS",
+            "CORTEX": "CX",
+            "CX": "CX",
+            "CEREBELLUM": "CB",
+            "CB": "CB"
+        }
+
+        # Show UI right away, defer other initialization
+        self.init_ui()
+
+        # Initialize heavy components after UI is visible
+        QTimer.singleShot(0, self.delayed_init)
+
+    def delayed_init(self):
+        """Initialize components that aren't needed for initial UI display"""
+        # Import heavy modules only when needed
+        from openpyxl import Workbook, load_workbook
+        from openpyxl.utils import get_column_letter
+
+        if getattr(sys, 'frozen', False):
+            self.script_dir = os.path.dirname(sys.executable)
+        else:
+            self.script_dir = os.path.dirname(os.path.abspath(__file__))
+
+        self.COUNTER_FILE = os.path.join(self.script_dir, 'sample_name_counter.json')
         self.black_fill = PatternFill(start_color='000000', fill_type='solid')
-        self.bold_font = Font(bold=True)
-        self.init_ui()  # Call init_ui directly instead of using QTimer
+        self.default_font = Font(name="Arial", size=10)
+        self.bold_font = Font(name="Arial", size=10, bold=True)
+
+        # Load counter data in the background
+        self.load_counter_data()
+
+        # Setup enter key navigation after UI is completely initialized
+        self.setup_enter_key_navigation()
 
     def get_save_location(self):
         if os.path.exists(self.config_file):
@@ -129,6 +166,9 @@ class DataLogGUI(QMainWindow):
         return file_name
 
     def save_data(self):
+        # Import pandas only when needed
+        import pandas as pd
+
         if not self.file_location:
             self.file_location = self.get_save_location()
 
@@ -146,7 +186,7 @@ class DataLogGUI(QMainWindow):
                 'krienen_lab_identifier': [self.krienen_lab_identifier],
                 'seq_portal': [self.seq_portal],
                 # ... add all your other fields here ...
-                'Current Date and Time (UTC)': ["2025-03-24 14:30:47"],
+                'Current Date and Time (UTC)': ["2025-03-24 15:02:44"],
                 'Current User Login': ["lakmecaceres"]
             }
             df = pd.DataFrame(data)
@@ -157,42 +197,11 @@ class DataLogGUI(QMainWindow):
 
     def get_current_time(self):
         # Return fixed time as provided
-        return "2025-03-24 14:30:47"
+        return "2025-03-24 15:02:44"
 
     def get_current_user(self):
         # Return fixed user as provided
         return "lakmecaceres"
-
-    def setup_buttons(self):
-        self.save_button = QPushButton("Save")
-        self.save_button.clicked.connect(self.save_data)  # Connect to the new save_data method
-
-    def init_constants(self):
-        if getattr(sys, 'frozen', False):
-            self.script_dir = os.path.dirname(sys.executable)
-        else:
-            self.script_dir = os.path.dirname(os.path.abspath(__file__))
-
-        self.COUNTER_FILE = os.path.join(self.script_dir, 'sample_name_counter.json')
-
-        self.name_to_code = {
-            "Croissant": "CJ23.56.002",
-            "Nutmeg": "CJ23.56.003",
-            "Jellybean": "CJ24.56.001",
-            "Rambo": "CJ24.56.004",
-            "Morel": "CJ24.56.015"
-        }
-
-        self.tile_location_map = {
-            "BRAINSTEM": "BS",
-            "BS": "BS",
-            "CORTEX": "CX",
-            "CX": "CX",
-            "CEREBELLUM": "CB",
-            "CB": "CB"
-        }
-
-        self.load_counter_data()
 
     def init_ui(self):
         self.setGeometry(100, 100, 800, 600)
@@ -254,9 +263,6 @@ class DataLogGUI(QMainWindow):
             }
         """)
         main_layout.addWidget(self.submit_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        # Setup Enter key navigation
-        self.setup_enter_key_navigation()
 
     def setup_enter_key_navigation(self):
         """Set up navigation to next field when Enter key is pressed"""
@@ -560,6 +566,10 @@ class DataLogGUI(QMainWindow):
         return index
 
     def convert_date(self, exp_date):
+        # Import dateutil only when needed
+        import dateutil.parser
+        from datetime import datetime
+
         clean_date = "".join(c for c in exp_date if c.isdigit())
         if len(clean_date) == 6:
             try:
@@ -650,9 +660,29 @@ class DataLogGUI(QMainWindow):
         return True
 
     def initialize_excel(self):
+        # Import openpyxl only when needed
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, NamedStyle
+
         wb = Workbook()
         ws = wb.active
         ws.title = "HMBA"
+
+        # Create default style (Arial 10)
+        default_style = NamedStyle(name="default_style")
+        default_style.font = Font(name="Arial", size=10)
+        wb.add_named_style(default_style)
+
+        # Create bold style (Arial 10 bold)
+        bold_style = NamedStyle(name="bold_style")
+        bold_style.font = Font(name="Arial", size=10, bold=True)
+        wb.add_named_style(bold_style)
+
+        # Apply default style to entire worksheet
+        for row in ws.iter_rows():
+            for cell in row:
+                cell.style = "default_style"
+
         headers = ['krienen_lab_identifier', 'seq_portal', 'elab_link', 'experiment_start_date',
                    'mit_name', 'donor_name', 'tissue_name', 'tissue_name_old',
                    'dissociated_cell_sample_name', 'facs_population_plan', 'cell_prep_type',
@@ -668,14 +698,18 @@ class DataLogGUI(QMainWindow):
 
         ws.append(headers)
 
-        # Apply Arial 10 font to headers
-        header_font = Font(name="Arial", size=10, bold=True)
+        # Apply bold style to headers
         for col_num, header in enumerate(headers, start=1):
-            ws.cell(row=1, column=col_num).font = header_font
+            ws.cell(row=1, column=col_num).style = "bold_style"
 
         return wb
 
     def process_form_data(self):
+        # Import heavy modules only when needed
+        from openpyxl import load_workbook
+        from openpyxl.utils import get_column_letter
+        import pyperclip
+
         # Load or create workbook
         if self.workbook_path and os.path.exists(self.workbook_path):
             workbook = load_workbook(self.workbook_path)
@@ -920,8 +954,11 @@ class DataLogGUI(QMainWindow):
             self.counter_data["amp_counter"][current_date] += 1
 
         # Write to Excel
-        for col_num, value in enumerate(row_data, 1):
+        for col_num, value in enumerate(row_data, start=1):
             cell = worksheet.cell(row=current_row, column=col_num, value=value)
+            # Apply default Arial 10 font to all cells
+            cell.font = Font(name="Arial", size=10)
+
             # Apply black fill for ATAC empty cells
             if modality == "ATAC" and value is None:
                 cell.fill = self.black_fill
@@ -932,22 +969,31 @@ class DataLogGUI(QMainWindow):
 
     def on_submit(self):
         try:
+            # Change cursor to wait cursor
+            QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+
             if not self.validate_inputs():
+                QApplication.restoreOverrideCursor()
                 return
 
             # Get file location if not already set
             if not self.file_location:
+                QApplication.restoreOverrideCursor()  # Restore cursor before dialog
                 self.file_location = self.get_save_location()
-
-            if not self.file_location:
-                QMessageBox.critical(self, "Error", "No save location specified!")
-                return
+                if not self.file_location:
+                    QMessageBox.critical(self, "Error", "No save location specified!")
+                    return
+                QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))  # Set wait cursor again
 
             # Use file_location instead of workbook_path
             self.workbook_path = self.file_location
 
             # Process the form data and update Excel
             self.process_form_data()
+
+            # These imports are now inside methods that use them
+            from openpyxl import load_workbook
+            from openpyxl.utils import get_column_letter
 
             # Adjust column widths
             workbook = load_workbook(self.workbook_path)
@@ -968,6 +1014,9 @@ class DataLogGUI(QMainWindow):
 
             workbook.save(self.workbook_path)
 
+            # Restore cursor before showing message
+            QApplication.restoreOverrideCursor()
+
             QMessageBox.information(
                 self,
                 "Success",
@@ -978,6 +1027,7 @@ class DataLogGUI(QMainWindow):
             self.clear_form_fields()
 
         except Exception as e:
+            QApplication.restoreOverrideCursor()  # Make sure cursor is restored on error
             QMessageBox.critical(
                 self,
                 "Error",
