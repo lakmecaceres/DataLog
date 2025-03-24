@@ -717,11 +717,21 @@ class DataLogGUI(QMainWindow):
             workbook = self.initialize_excel()
 
         worksheet = workbook.active
-        current_row = worksheet.max_row
-        if current_row == 1 and not any(cell.value for cell in worksheet[1]):
-            current_row = 1
-        else:
-            current_row += 1
+
+        # Fix: Properly detect the actual last row with content
+        # This is more reliable than using max_row which can be misleading after manual deletion
+        last_row_with_content = 1  # Assume at least headers exist
+        for row_idx in range(1, worksheet.max_row + 1):
+            row_has_content = False
+            for cell in worksheet[row_idx]:
+                if cell.value is not None:
+                    row_has_content = True
+                    break
+            if row_has_content:
+                last_row_with_content = row_idx
+
+        # Start at row 2 if only headers exist (row 1), otherwise start after the last content row
+        current_row = last_row_with_content + 1
 
         # Get form values
         current_date = self.convert_date(self.date_input.text())
@@ -959,8 +969,9 @@ class DataLogGUI(QMainWindow):
             # Apply default Arial 10 font to all cells
             cell.font = Font(name="Arial", size=10)
 
-            # Apply black fill for ATAC empty cells
-            if modality == "ATAC" and value is None:
+            # Apply black fill for ATAC empty cells or RNA's ATAC_index cell
+            if (modality == "ATAC" and value is None) or (
+                    modality == "RNA" and col_num == headers.index('ATAC_index') + 1):
                 cell.fill = self.black_fill
 
         # Apply black fill to tissue_name_old
