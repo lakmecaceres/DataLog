@@ -10,66 +10,162 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QLabel, QLineEdit, QComboBox, QPushButton, QScrollArea,
-                             QMessageBox, QGridLayout, QGroupBox, QTabWidget, QFileDialog)
-from PyQt6.QtCore import Qt, QTimer
+                             QMessageBox, QGridLayout, QGroupBox, QTabWidget, QFileDialog,
+                             QFrame, QListView)
+from PyQt6.QtCore import Qt, QTimer, QEvent
+from PyQt6.QtGui import QPalette, QColor
+
+
+class FocusLineEdit(QLineEdit):
+    """Custom QLineEdit with enhanced focus visualization"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #ababab;
+                border-radius: 3px;
+                padding: 2px;
+                background-color: white;
+            }
+            QLineEdit:focus {
+                border: 2px solid #0078d7;
+                background-color: #e5f1fb;
+            }
+        """)
+
+
+class FocusComboBox(QComboBox):
+    """Custom QComboBox with enhanced focus visualization"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setView(QListView())
+
+        # Set stylesheet with proper colors for all states
+        self.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #ababab;
+                border-radius: 3px;
+                padding: 1px 18px 1px 3px;
+                min-width: 6em;
+                background-color: white;
+            }
+            QComboBox:focus {
+                border: 2px solid #0078d7;
+                background-color: #e5f1fb;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 15px;
+                border-left-width: 1px;
+                border-left-color: darkgray;
+                border-left-style: solid;
+                border-top-right-radius: 3px;
+                border-bottom-right-radius: 3px;
+            }
+
+            /* Important: Style both the QListView and the items */
+            QComboBox QAbstractItemView {
+                background: white;
+                border: 1px solid #ababab;
+                selection-background-color: #0078d7;
+                selection-color: white;
+            }
+
+            QComboBox QAbstractItemView::item {
+                background-color: white;
+                color: black;
+                padding: 4px;
+            }
+
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #e5f1fb;
+                color: black;
+            }
+
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #0078d7;
+                color: white;
+            }
+        """)
 
 
 class DataLogGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.config_dir = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', 'DataLogApp')
+        os.makedirs(self.config_dir, exist_ok=True)
+        self.config_file = os.path.join(self.config_dir, 'config.json')
+        self.file_location = None
+        self.workbook_path = None  # Will be set when user chooses location
         self.setWindowTitle("Krienen Data Logger")
         self.init_constants()  # Initialize constants first
         self.black_fill = PatternFill(start_color='000000', fill_type='solid')
         self.bold_font = Font(bold=True)
-        QTimer.singleShot(0, self.init_ui)
+        self.init_ui()  # Call init_ui directly instead of using QTimer
 
     def get_save_location(self):
-        config_file = 'config.json'
-        if os.path.exists(config_file):
-            with open(config_file, 'r') as f:
+        if os.path.exists(self.config_file):
+            with open(self.config_file, 'r') as f:
                 config = json.load(f)
                 return config.get('file_location')
 
         file_name, _ = QFileDialog.getSaveFileName(
             self,
             "Save Excel File",
-            "",  # Default directory, empty means last used
+            os.path.expanduser('~'),  # Start in the user's home directory
             "Excel Files (*.xlsx);;All Files (*)"
         )
 
         if file_name:
-            with open(config_file, 'w') as f:
-                json.dump({'file_location': file_name}, f)
+            try:
+                with open(self.config_file, 'w') as f:
+                    json.dump({'file_location': file_name}, f)
+            except IOError as e:
+                QMessageBox.critical(self, "Error", f"Failed to write config file: {str(e)}")
 
         return file_name
 
     def save_data(self):
-        file_location = self.get_save_location()
-        if file_location:  # Only proceed if user didn't cancel
-            if not file_location.endswith('.xlsx'):
-                file_location += '.xlsx'
-            try:
-                # Create DataFrame from your data
-                data = {
-                    'krienen_lab_identifier': [self.krienen_lab_identifier],
-                    'seq_portal': [self.seq_portal],
-                    # ... add all your other fields here ...
-                    'Current Date and Time (UTC)': [self.get_current_time()],
-                    'Current User Login': [self.get_current_user()]
-                }
-                df = pd.DataFrame(data)
-                df.to_excel(file_location, index=False)
-                QMessageBox.information(self, "Success", "Data saved successfully!")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to save file: {str(e)}")
+        if not self.file_location:
+            self.file_location = self.get_save_location()
 
-    # Then find where you connect your save button and update it to use this method:
-    def setup_buttons(self):  # or whatever method contains your button setup
+        if not self.file_location:
+            QMessageBox.critical(self, "Error", "No save location specified!")
+            return
+
+        file_location = self.file_location
+        if not file_location.endswith('.xlsx'):
+            file_location += '.xlsx'
+
+        try:
+            # Create DataFrame from your data
+            data = {
+                'krienen_lab_identifier': [self.krienen_lab_identifier],
+                'seq_portal': [self.seq_portal],
+                # ... add all your other fields here ...
+                'Current Date and Time (UTC)': ["2025-03-24 14:30:47"],
+                'Current User Login': ["lakmecaceres"]
+            }
+            df = pd.DataFrame(data)
+            df.to_excel(file_location, index=False)
+            QMessageBox.information(self, "Success", "Data saved successfully!")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save file: {str(e)}")
+
+    def get_current_time(self):
+        # Return fixed time as provided
+        return "2025-03-24 14:30:47"
+
+    def get_current_user(self):
+        # Return fixed user as provided
+        return "lakmecaceres"
+
+    def setup_buttons(self):
         self.save_button = QPushButton("Save")
         self.save_button.clicked.connect(self.save_data)  # Connect to the new save_data method
-
-    def delayed_init(self):
-        self.init_ui()
 
     def init_constants(self):
         if getattr(sys, 'frozen', False):
@@ -78,7 +174,6 @@ class DataLogGUI(QMainWindow):
             self.script_dir = os.path.dirname(os.path.abspath(__file__))
 
         self.COUNTER_FILE = os.path.join(self.script_dir, 'sample_name_counter.json')
-        self.workbook_path = os.path.join(self.script_dir, 'datalog.xlsx')
 
         self.name_to_code = {
             "Croissant": "CJ23.56.002",
@@ -100,26 +195,28 @@ class DataLogGUI(QMainWindow):
         self.load_counter_data()
 
     def init_ui(self):
-        self.setGeometry(100, 100, 1000, 800)
+        self.setGeometry(100, 100, 800, 600)
 
+        # Create main widget and layout
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
+        main_layout = QVBoxLayout(main_widget)
 
-        scroll = QScrollArea()
-        main_widget.layout = QVBoxLayout(main_widget)
-        main_widget.layout.addWidget(scroll)
-
-        content_widget = QWidget()
-        scroll.setWidget(content_widget)
-        scroll.setWidgetResizable(True)
-
-        self.layout = QVBoxLayout(content_widget)
+        # Add a frame with a title to make it clear what the app does
+        title_frame = QFrame()
+        title_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        title_frame.setStyleSheet("background-color: #f0f0f0; padding: 5px;")
+        title_layout = QVBoxLayout(title_frame)
+        title_label = QLabel("Krienen Lab Data Logger")
+        title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
+        title_layout.addWidget(title_label)
+        main_layout.addWidget(title_frame)
 
         # Create tab widget
-        tab_widget = QTabWidget()
-        self.layout.addWidget(tab_widget)
+        self.tab_widget = QTabWidget()
+        main_layout.addWidget(self.tab_widget)
 
-        # Create tabs with new names
+        # Create tabs
         tissue_tab = QWidget()
         facs_tab = QWidget()
         library_tab = QWidget()
@@ -132,107 +229,198 @@ class DataLogGUI(QMainWindow):
         self.setup_indices_tab(indices_tab)
 
         # Add tabs to widget with new names
-        tab_widget.addTab(tissue_tab, "Tissue")
-        tab_widget.addTab(facs_tab, "FACS")
-        tab_widget.addTab(library_tab, "cDNA")
-        tab_widget.addTab(indices_tab, "Libraries")
+        self.tab_widget.addTab(tissue_tab, "Tissue")
+        self.tab_widget.addTab(facs_tab, "FACS")
+        self.tab_widget.addTab(library_tab, "cDNA")
+        self.tab_widget.addTab(indices_tab, "Libraries")
 
         # Add submit button
         self.submit_btn = QPushButton('Submit')
         self.submit_btn.clicked.connect(self.on_submit)
-        self.layout.addWidget(self.submit_btn)
+        self.submit_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0078d7;
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border-radius: 4px;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #0063b1;
+            }
+            QPushButton:pressed {
+                background-color: #004e8c;
+            }
+        """)
+        main_layout.addWidget(self.submit_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Setup Enter key navigation
+        self.setup_enter_key_navigation()
+
+    def setup_enter_key_navigation(self):
+        """Set up navigation to next field when Enter key is pressed"""
+        # Create a list of all input widgets
+        self.input_widgets = []
+
+        # Add widgets from all tabs
+        for tab_index in range(self.tab_widget.count()):
+            tab = self.tab_widget.widget(tab_index)
+            for child in tab.findChildren(QWidget):
+                if isinstance(child, QLineEdit):
+                    self.input_widgets.append(child)
+                    child.returnPressed.connect(self.on_return_pressed)
+                elif isinstance(child, QComboBox):
+                    self.input_widgets.append(child)
+                    child.installEventFilter(self)
+
+    def on_return_pressed(self):
+        """Handle Return key press for any input widget"""
+        sender = self.sender()
+        if sender in self.input_widgets:
+            self.move_to_next_widget(sender)
+
+    def eventFilter(self, obj, event):
+        """Event filter to handle Enter key in QComboBox"""
+        if (event.type() == QEvent.Type.KeyPress and
+                isinstance(obj, QComboBox) and
+                event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)):
+            self.move_to_next_widget(obj)
+            return True
+
+        return super().eventFilter(obj, event)
+
+    def move_to_next_widget(self, current_widget):
+        """Move focus to the next widget in the input widgets list"""
+        try:
+            current_index = self.input_widgets.index(current_widget)
+            next_index = (current_index + 1) % len(self.input_widgets)
+            next_widget = self.input_widgets[next_index]
+
+            # If we're moving to a widget on a different tab, switch to that tab
+            for tab_index in range(self.tab_widget.count()):
+                tab = self.tab_widget.widget(tab_index)
+                if self.widget_is_in_tab(next_widget, tab):
+                    if tab_index != self.tab_widget.currentIndex():
+                        self.tab_widget.setCurrentIndex(tab_index)
+                    break
+
+            next_widget.setFocus()
+        except (ValueError, IndexError) as e:
+            print(f"Navigation error: {e}")
+            # If widget is not in list or there's an error, do nothing
+            pass
+
+    def widget_is_in_tab(self, widget, tab):
+        """Check if a widget is contained within a tab"""
+        if widget is tab:
+            return True
+
+        # Check if widget is directly in tab's children
+        if widget in tab.findChildren(widget.__class__):
+            return True
+
+        # Check parent chain
+        parent = widget.parent()
+        while parent:
+            if parent is tab:
+                return True
+            parent = parent.parent()
+
+        return False
 
     def setup_basic_tab(self, tab):
         layout = QGridLayout()
 
         # Project selection (at top)
-        self.project_input = QComboBox()
+        self.project_input = FocusComboBox()
         self.project_input.addItems(["HMBA_CjAtlas_Subcortex", "Other"])
         self.project_input.currentTextChanged.connect(self.on_project_change)
-        self.project_name_input = QLineEdit()
-        self.project_name_input.setVisible(False)
         layout.addWidget(QLabel("Project:"), 0, 0)
         layout.addWidget(self.project_input, 0, 1)
+        self.project_name_input = FocusLineEdit()
+        self.project_name_input.setVisible(False)
         layout.addWidget(self.project_name_input, 0, 2)
 
         # Date input with validation
-        self.date_input = QLineEdit()
+        self.date_input = FocusLineEdit()
         self.date_input.setPlaceholderText("YYMMDD or MM/DD/YY")
         layout.addWidget(QLabel("Experiment Date:"), 1, 0)
         layout.addWidget(self.date_input, 1, 1)
 
         # Marmoset name with dropdown
-        self.marmoset_input = QComboBox()
+        self.marmoset_input = FocusComboBox()
         self.marmoset_input.addItems(self.name_to_code.keys())
         layout.addWidget(QLabel("Marmoset Name:"), 2, 0)
         layout.addWidget(self.marmoset_input, 2, 1)
 
         # Hemisphere selection
-        self.hemisphere_input = QComboBox()
+        self.hemisphere_input = FocusComboBox()
         self.hemisphere_input.addItems(["Left (LH)", "Right (RH)", "Both"])
         layout.addWidget(QLabel("Hemisphere:"), 3, 0)
         layout.addWidget(self.hemisphere_input, 3, 1)
 
-        # Tile location multiselect (moved right after hemisphere)
-        self.tile_location_input = QComboBox()
+        # Tile location as a simple dropdown (NOT editable)
+        self.tile_location_input = FocusComboBox()
         self.tile_location_input.addItems(["BS", "CX", "CB"])
-        self.tile_location_input.setEditable(True)
+        # No longer editable - making it a pure dropdown
         layout.addWidget(QLabel("Tile Location:"), 4, 0)
         layout.addWidget(self.tile_location_input, 4, 1)
 
         # Slab and tile numbers
-        self.slab_input = QLineEdit()
+        self.slab_input = FocusLineEdit()
         self.slab_input.setPlaceholderText("Enter numeric value")
         layout.addWidget(QLabel("Slab Number:"), 5, 0)
         layout.addWidget(self.slab_input, 5, 1)
 
-        self.tile_input = QLineEdit()
+        self.tile_input = FocusLineEdit()
         self.tile_input.setPlaceholderText("Enter numeric value")
         layout.addWidget(QLabel("Tile Number:"), 6, 0)
         layout.addWidget(self.tile_input, 6, 1)
 
+        # Set layout for this tab
         tab.setLayout(layout)
 
     def setup_facs_tab(self, tab):
         layout = QGridLayout()
 
         # Sorter Initials
-        self.sorter_initials_input = QLineEdit()
+        self.sorter_initials_input = FocusLineEdit()
         self.sorter_initials_input.setPlaceholderText("Enter sorter's initials")
         layout.addWidget(QLabel("Sorter Initials:"), 0, 0)
         layout.addWidget(self.sorter_initials_input, 0, 1)
 
         # Sort method
-        self.sort_method_input = QComboBox()
+        self.sort_method_input = FocusComboBox()
         self.sort_method_input.addItems(["pooled", "unsorted", "DAPI"])
         self.sort_method_input.currentTextChanged.connect(self.on_sort_method_change)
         layout.addWidget(QLabel("Sort Method:"), 1, 0)
         layout.addWidget(self.sort_method_input, 1, 1)
 
         # FACS population (moved before number of reactions)
-        self.facs_population_input = QLineEdit()
+        self.facs_population_input = FocusLineEdit()
         self.facs_population_input.setPlaceholderText("Format: XX/XX/XX (e.g., 70/20/10)")
         layout.addWidget(QLabel("FACS Population:"), 2, 0)
         layout.addWidget(self.facs_population_input, 2, 1)
 
         # Number of Reactions
-        self.rxn_number_input = QLineEdit()
+        self.rxn_number_input = FocusLineEdit()
         self.rxn_number_input.setPlaceholderText("Enter number of reactions")
         layout.addWidget(QLabel("Number of Reactions:"), 3, 0)
         layout.addWidget(self.rxn_number_input, 3, 1)
 
-        # Expected Recovery (moved from library tab)
-        self.expected_recovery_input = QLineEdit()
+        # Expected Recovery
+        self.expected_recovery_input = FocusLineEdit()
         layout.addWidget(QLabel("Expected Recovery:"), 4, 0)
         layout.addWidget(self.expected_recovery_input, 4, 1)
 
-        # Nuclei Concentration (moved from library tab)
-        self.nuclei_concentration_input = QLineEdit()
+        # Nuclei Concentration
+        self.nuclei_concentration_input = FocusLineEdit()
         layout.addWidget(QLabel("Nuclei Concentration:"), 5, 0)
         layout.addWidget(self.nuclei_concentration_input, 5, 1)
 
-        # Nuclei Volume (moved from library tab)
-        self.nuclei_volume_input = QLineEdit()
+        # Nuclei Volume
+        self.nuclei_volume_input = FocusLineEdit()
         layout.addWidget(QLabel("Nuclei Volume (µL):"), 6, 0)
         layout.addWidget(self.nuclei_volume_input, 6, 1)
 
@@ -242,34 +430,34 @@ class DataLogGUI(QMainWindow):
         layout = QGridLayout()
 
         # Library dates
-        self.cdna_amp_date_input = QLineEdit()
+        self.cdna_amp_date_input = FocusLineEdit()
         self.cdna_amp_date_input.setPlaceholderText("YYMMDD or MM/DD/YY")
         layout.addWidget(QLabel("cDNA Amplification Date:"), 0, 0)
         layout.addWidget(self.cdna_amp_date_input, 0, 1)
 
-        self.atac_prep_date_input = QLineEdit()
+        self.atac_prep_date_input = FocusLineEdit()
         self.atac_prep_date_input.setPlaceholderText("YYMMDD or MM/DD/YY")
         layout.addWidget(QLabel("ATAC Library Prep Date:"), 1, 0)
         layout.addWidget(self.atac_prep_date_input, 1, 1)
 
-        self.rna_prep_date_input = QLineEdit()
+        self.rna_prep_date_input = FocusLineEdit()
         self.rna_prep_date_input.setPlaceholderText("YYMMDD or MM/DD/YY")
         layout.addWidget(QLabel("cDNA Library Prep Date:"), 2, 0)
         layout.addWidget(self.rna_prep_date_input, 2, 1)
 
         # PCR cycles
-        self.cdna_pcr_cycles_input = QLineEdit()
+        self.cdna_pcr_cycles_input = FocusLineEdit()
         self.cdna_pcr_cycles_input.setPlaceholderText("Comma-separated values")
         layout.addWidget(QLabel("cDNA PCR Cycles:"), 3, 0)
         layout.addWidget(self.cdna_pcr_cycles_input, 3, 1)
 
-        # cDNA metrics (reordered)
-        self.cdna_concentration_input = QLineEdit()
+        # cDNA metrics
+        self.cdna_concentration_input = FocusLineEdit()
         self.cdna_concentration_input.setPlaceholderText("Comma-separated values (ng/µL)")
         layout.addWidget(QLabel("cDNA Concentration:"), 4, 0)
         layout.addWidget(self.cdna_concentration_input, 4, 1)
 
-        self.percent_cdna_400bp_input = QLineEdit()
+        self.percent_cdna_400bp_input = FocusLineEdit()
         self.percent_cdna_400bp_input.setPlaceholderText("Comma-separated values")
         layout.addWidget(QLabel("Percent cDNA > 400bp:"), 5, 0)
         layout.addWidget(self.percent_cdna_400bp_input, 5, 1)
@@ -309,43 +497,43 @@ class DataLogGUI(QMainWindow):
         layout = QGridLayout()
 
         # ATAC fields grouped together
-        self.library_cycles_atac_input = QLineEdit()
+        self.library_cycles_atac_input = FocusLineEdit()
         self.library_cycles_atac_input.setPlaceholderText("Comma-separated values")
         layout.addWidget(QLabel("ATAC Library Cycles:"), 0, 0)
         layout.addWidget(self.library_cycles_atac_input, 0, 1)
 
-        self.atac_indices_input = QLineEdit()
+        self.atac_indices_input = FocusLineEdit()
         self.atac_indices_input.setPlaceholderText("Comma-separated values (e.g., D4,E5,F6)")
         layout.addWidget(QLabel("ATAC Indices:"), 1, 0)
         layout.addWidget(self.atac_indices_input, 1, 1)
 
-        self.atac_lib_concentration_input = QLineEdit()
+        self.atac_lib_concentration_input = FocusLineEdit()
         self.atac_lib_concentration_input.setPlaceholderText("Comma-separated values (ng/µL)")
         layout.addWidget(QLabel("ATAC Library Concentration:"), 2, 0)
         layout.addWidget(self.atac_lib_concentration_input, 2, 1)
 
-        self.atac_sizes_input = QLineEdit()
+        self.atac_sizes_input = FocusLineEdit()
         self.atac_sizes_input.setPlaceholderText("Comma-separated values")
         layout.addWidget(QLabel("ATAC Library Sizes (bp):"), 3, 0)
         layout.addWidget(self.atac_sizes_input, 3, 1)
 
         # cDNA fields grouped together
-        self.library_cycles_rna_input = QLineEdit()
+        self.library_cycles_rna_input = FocusLineEdit()
         self.library_cycles_rna_input.setPlaceholderText("Comma-separated values")
         layout.addWidget(QLabel("cDNA Library Cycles:"), 4, 0)
         layout.addWidget(self.library_cycles_rna_input, 4, 1)
 
-        self.rna_indices_input = QLineEdit()
+        self.rna_indices_input = FocusLineEdit()
         self.rna_indices_input.setPlaceholderText("Comma-separated values (e.g., A1,B2,C3)")
         layout.addWidget(QLabel("cDNA Indices:"), 5, 0)
         layout.addWidget(self.rna_indices_input, 5, 1)
 
-        self.rna_lib_concentration_input = QLineEdit()
+        self.rna_lib_concentration_input = FocusLineEdit()
         self.rna_lib_concentration_input.setPlaceholderText("Comma-separated values (ng/µL)")
         layout.addWidget(QLabel("cDNA Library Concentration:"), 6, 0)
         layout.addWidget(self.rna_lib_concentration_input, 6, 1)
 
-        self.rna_sizes_input = QLineEdit()
+        self.rna_sizes_input = FocusLineEdit()
         self.rna_sizes_input.setPlaceholderText("Comma-separated values")
         layout.addWidget(QLabel("cDNA Library Sizes (bp):"), 7, 0)
         layout.addWidget(self.rna_sizes_input, 7, 1)
@@ -489,7 +677,7 @@ class DataLogGUI(QMainWindow):
 
     def process_form_data(self):
         # Load or create workbook
-        if os.path.exists(self.workbook_path):
+        if self.workbook_path and os.path.exists(self.workbook_path):
             workbook = load_workbook(self.workbook_path)
         else:
             workbook = self.initialize_excel()
@@ -747,6 +935,17 @@ class DataLogGUI(QMainWindow):
             if not self.validate_inputs():
                 return
 
+            # Get file location if not already set
+            if not self.file_location:
+                self.file_location = self.get_save_location()
+
+            if not self.file_location:
+                QMessageBox.critical(self, "Error", "No save location specified!")
+                return
+
+            # Use file_location instead of workbook_path
+            self.workbook_path = self.file_location
+
             # Process the form data and update Excel
             self.process_form_data()
 
@@ -825,6 +1024,7 @@ class DataLogGUI(QMainWindow):
         self.library_cycles_rna_input.clear()
         self.library_cycles_atac_input.clear()
 
+
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
@@ -832,5 +1032,8 @@ def main():
     gui.show()
     sys.exit(app.exec())
 
+
 if __name__ == '__main__':
     main()
+
+## to build on windows: pyinstaller --onefile --windowed --icon=icon.ico --add-data "requirements.txt;." --add-data "sample_name_counter.json;." datalog_gui.py
