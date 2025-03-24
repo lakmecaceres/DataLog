@@ -502,16 +502,16 @@ class DataLogGUI(QMainWindow):
     def setup_indices_tab(self, tab):
         layout = QGridLayout()
 
-        # ATAC fields grouped together
-        self.library_cycles_atac_input = FocusLineEdit()
-        self.library_cycles_atac_input.setPlaceholderText("Comma-separated values")
-        layout.addWidget(QLabel("ATAC Library Cycles:"), 0, 0)
-        layout.addWidget(self.library_cycles_atac_input, 0, 1)
-
+        # ATAC fields - reordered to put indices first
         self.atac_indices_input = FocusLineEdit()
         self.atac_indices_input.setPlaceholderText("Comma-separated values (e.g., D4,E5,F6)")
-        layout.addWidget(QLabel("ATAC Indices:"), 1, 0)
-        layout.addWidget(self.atac_indices_input, 1, 1)
+        layout.addWidget(QLabel("ATAC Indices:"), 0, 0)
+        layout.addWidget(self.atac_indices_input, 0, 1)
+
+        self.library_cycles_atac_input = FocusLineEdit()
+        self.library_cycles_atac_input.setPlaceholderText("Comma-separated values")
+        layout.addWidget(QLabel("ATAC Library Cycles:"), 1, 0)
+        layout.addWidget(self.library_cycles_atac_input, 1, 1)
 
         self.atac_lib_concentration_input = FocusLineEdit()
         self.atac_lib_concentration_input.setPlaceholderText("Comma-separated values (ng/µL)")
@@ -523,16 +523,16 @@ class DataLogGUI(QMainWindow):
         layout.addWidget(QLabel("ATAC Library Sizes (bp):"), 3, 0)
         layout.addWidget(self.atac_sizes_input, 3, 1)
 
-        # cDNA fields grouped together
-        self.library_cycles_rna_input = FocusLineEdit()
-        self.library_cycles_rna_input.setPlaceholderText("Comma-separated values")
-        layout.addWidget(QLabel("cDNA Library Cycles:"), 4, 0)
-        layout.addWidget(self.library_cycles_rna_input, 4, 1)
-
+        # cDNA fields - reordered to put indices first
         self.rna_indices_input = FocusLineEdit()
         self.rna_indices_input.setPlaceholderText("Comma-separated values (e.g., A1,B2,C3)")
-        layout.addWidget(QLabel("cDNA Indices:"), 5, 0)
-        layout.addWidget(self.rna_indices_input, 5, 1)
+        layout.addWidget(QLabel("cDNA Indices:"), 4, 0)
+        layout.addWidget(self.rna_indices_input, 4, 1)
+
+        self.library_cycles_rna_input = FocusLineEdit()
+        self.library_cycles_rna_input.setPlaceholderText("Comma-separated values")
+        layout.addWidget(QLabel("cDNA Library Cycles:"), 5, 0)
+        layout.addWidget(self.library_cycles_rna_input, 5, 1)
 
         self.rna_lib_concentration_input = FocusLineEdit()
         self.rna_lib_concentration_input.setPlaceholderText("Comma-separated values (ng/µL)")
