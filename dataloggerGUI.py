@@ -435,16 +435,16 @@ class DataLogGUI(QMainWindow):
     def setup_library_tab(self, tab):
         layout = QGridLayout()
 
-        # Library dates
-        self.cdna_amp_date_input = FocusLineEdit()
-        self.cdna_amp_date_input.setPlaceholderText("YYMMDD or MM/DD/YY")
-        layout.addWidget(QLabel("cDNA Amplification Date:"), 0, 0)
-        layout.addWidget(self.cdna_amp_date_input, 0, 1)
-
+        # Library dates - reordered with ATAC first, then cDNA Amplification
         self.atac_prep_date_input = FocusLineEdit()
         self.atac_prep_date_input.setPlaceholderText("YYMMDD or MM/DD/YY")
-        layout.addWidget(QLabel("ATAC Library Prep Date:"), 1, 0)
-        layout.addWidget(self.atac_prep_date_input, 1, 1)
+        layout.addWidget(QLabel("ATAC Library Prep Date:"), 0, 0)
+        layout.addWidget(self.atac_prep_date_input, 0, 1)
+
+        self.cdna_amp_date_input = FocusLineEdit()
+        self.cdna_amp_date_input.setPlaceholderText("YYMMDD or MM/DD/YY")
+        layout.addWidget(QLabel("cDNA Amplification Date:"), 1, 0)
+        layout.addWidget(self.cdna_amp_date_input, 1, 1)
 
         self.rna_prep_date_input = FocusLineEdit()
         self.rna_prep_date_input.setPlaceholderText("YYMMDD or MM/DD/YY")
